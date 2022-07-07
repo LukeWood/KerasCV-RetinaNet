@@ -9,19 +9,26 @@ from retina_net import layers as layers_lib
 
 # --- Building RetinaNet using a subclassed model ---
 class RetinaNet(keras.Model):
-    """A Keras model implementing the RetinaNet architecture.
-    """
+    """A Keras model implementing the RetinaNet architecture."""
 
     def __init__(
         self,
         num_classes,
         bounding_box_format,
+        include_rescaling=None,
         backbone=None,
         prediction_decoder=None,
         name="RetinaNet",
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name=name, **kwargs)
+        if backbone is None and include_rescaling is None:
+            raise ValueError(
+                "Either `backbone` OR `include_rescaling` must be set when "
+                "constructing a `keras_cv.models.RetinaNet()` model. "
+                f"Received backbone={backbone}, include_rescaling={include_rescaling}."
+            )
+
         self.feature_pyramid = layers_lib.FeaturePyramid(backbone)
         self.bounding_box_format = bounding_box_format
         self.num_classes = num_classes
@@ -32,16 +39,14 @@ class RetinaNet(keras.Model):
 
         # TODO(lukewood): make configurable
         self.classification_head = layers_lib.PredictionHead(
-            output_filters=9 * num_classes,
-            bias_initializer=prior_probability
+            output_filters=9 * num_classes, bias_initializer=prior_probability
         )
         self.box_head = layers_lib.PredictionHead(
-            output_filters=9 * 4,
-            bias_initializer="zeros"
+            output_filters=9 * 4, bias_initializer="zeros"
         )
 
         self.prediction_decoder = prediction_decoder or layers_lib.DecodePredictions(
-            num_classes=num_classes
+            num_classes=num_classes, bounding_box_format=bounding_box_format
         )
 
     def call(self, x, training=False):
@@ -59,9 +64,16 @@ class RetinaNet(keras.Model):
         box_outputs = tf.concat(box_outputs, axis=1)
         train_preds = tf.concat([box_outputs, cls_outputs], axis=-1)
 
-        decoded = self.decoder(x, train_preds)
-        pred_for_inference = decoded.to_tensor(default_value=-1)
-
+        # no-op if default decoder is used.
+        pred_for_inference = bounding_box.convert_format(
+            pred_for_inference,
+            source=self.bounding_box_format,
+            target=self.decoder.bounding_box_format,
+        )
+        pred_for_inference = self.decoder(x, pred_for_inference)
+        pred_for_inference = bounding_box.convert_format(
+            pred_for_inference, source=self.decoder.bounding_box_format, target=self.bounding_box_format
+        )
         return {"train_preds": train_preds, "inference": pred_for_inference}
 
     def _update_metrics(self, y_for_metrics, result):
@@ -80,38 +92,30 @@ class RetinaNet(keras.Model):
 
     def train_step(self, data, training=True):
         x, y = data
+        y_for_metrics = y
+
+        y = bounding_box.convert_format(
+            y, source=self.bounding_box_format, target="xywh"
+        )
         y_training_target = self.label_encoder.encode_batch(y)
 
         with tf.GradientTape() as tape:
             predictions = self(x, training=training)
-            loss = self._loss(y_true, predictions["train_preds"])
+            loss = self._loss(y_training_target, predictions["train_preds"])
             for extra_loss in self.losses:
                 loss += extra_loss
 
-        self._update_metrics(y_for_metrics, predictions["inference"])
+        self._update_metrics(
+            y_for_metrics,
+        )
 
         # Training specific code
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         # clip grads to prevent explosion
-        gradients, gradient_norm = tf.clip_by_global_norm(gradients, 5.0)
-        self.gradient_norm_metric.update_state(gradient_norm)
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
         # Return metric result
-
-        return self._metrics_result(loss)
-
-    def test_step(self, data):
-        x, (y_true, y_for_metrics) = data
-        x = tf.cast(x, dtype=tf.float32)
-
-        predictions = self(x, training=False)
-        loss = self._loss(y_true, predictions["train_preds"])
-        for extra_loss in self.losses:
-            loss += extra_loss
-
-        self._update_metrics(y_for_metrics, predictions["inference"])
 
         return self._metrics_result(loss)
 
@@ -127,7 +131,8 @@ def default_backbone(include_rescaling):
     if include_rescaling:
         raise ValueError("include_rescaling is a TODO.  KerasCV API will cover this.")
     backbone = keras.applications.ResNet50(
-        include_top=False, input_shape=[None, None, 3],
+        include_top=False,
+        input_shape=[None, None, 3],
     )
     c3_output, c4_output, c5_output = [
         backbone.get_layer(layer_name).output
@@ -136,7 +141,3 @@ def default_backbone(include_rescaling):
     return keras.Model(
         inputs=[backbone.inputs], outputs=[c3_output, c4_output, c5_output]
     )
-
-    @property
-    def metrics(self):
-        return super().metrics + [self.gradient_norm_metric]

@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 
+
 def PredictionHead(output_filters, bias_initializer):
     """The class/box predictions head.
 
