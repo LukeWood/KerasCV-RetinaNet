@@ -66,6 +66,9 @@ class DecodePredictions(tf.keras.layers.Layer):
         box_predictions = predictions[:, :, :4]
         cls_predictions = tf.nn.sigmoid(predictions[:, :, 4:])
         boxes = self._decode_box_predictions(anchor_boxes[None, ...], box_predictions)
+
+        boxes = tf.concat([boxes, cls_predictions], axis=-1)
+
         result = self.non_max_suppression(boxes)
         result = bounding_box.convert_format(
             result, source="xyxy", target=self.bounding_box_format

@@ -7,6 +7,7 @@ from tensorflow import keras
 from keras_cv import bounding_box
 from retina_net import layers as layers_lib
 import retina_net.utils
+
 # --- Building RetinaNet using a subclassed model ---
 class RetinaNet(keras.Model):
     """A Keras model implementing the RetinaNet architecture."""
@@ -37,7 +38,9 @@ class RetinaNet(keras.Model):
         self.bounding_box_format = bounding_box_format
         self.num_classes = num_classes
 
-        self.label_encoder = label_encoder or _default_label_encoder()
+        self.label_encoder = label_encoder or retina_net.utils.LabelEncoder(
+            bounding_box_format=bounding_box_format
+        )
         self.backbone = backbone or _default_backbone(include_rescaling)
         self.feature_pyramid = layers_lib.FeaturePyramid(self.backbone)
 
@@ -50,13 +53,12 @@ class RetinaNet(keras.Model):
         self.box_head = layers_lib.PredictionHead(
             output_filters=9 * 4, bias_initializer="zeros"
         )
-
         self.prediction_decoder = prediction_decoder or layers_lib.DecodePredictions(
             num_classes=num_classes, bounding_box_format=bounding_box_format
         )
 
     def call(self, x, training=False):
-        features = self.fpn(x, training=training)
+        features = self.feature_pyramid(x, training=training)
         N = tf.shape(x)[0]
         cls_outputs = []
         box_outputs = []
@@ -72,26 +74,30 @@ class RetinaNet(keras.Model):
 
         # no-op if default decoder is used.
         pred_for_inference = bounding_box.convert_format(
-            pred_for_inference,
+            train_preds,
             source=self.bounding_box_format,
-            target=self.decoder.bounding_box_format,
+            target=self.prediction_decoder.bounding_box_format,
             images=x,
         )
-        pred_for_inference = self.decoder(x, pred_for_inference)
+        pred_for_inference = self.prediction_decoder(x, pred_for_inference)
         pred_for_inference = bounding_box.convert_format(
             pred_for_inference,
-            source=self.decoder.bounding_box_format,
+            source=self.prediction_decoder.bounding_box_format,
             target=self.bounding_box_format,
-            images=x
+            images=x,
         )
         return {"train_preds": train_preds, "inference": pred_for_inference}
 
-    def _update_metrics(self, y_for_metrics, result):
+    def _update_metrics(
+        self,
+        y_for_metrics,
+        predictions,
+    ):
         # COCO metrics are all stored in compiled_metrics
         # This tf.cond is needed to work around a TensorFlow edge case in Ragged Tensors
         tf.cond(
-            tf.shape(result)[2] != 0,
-            lambda: self.compiled_metrics.update_state(y_for_metrics, result),
+            tf.shape(predictions)[2] != 0,
+            lambda: self.compiled_metrics.update_state(y_for_metrics, predictions),
             lambda: None,
         )
 
@@ -105,19 +111,25 @@ class RetinaNet(keras.Model):
         y_for_metrics = y
 
         y = bounding_box.convert_format(
-            y, source=self.bounding_box_format, target="xywh", images=x
+            y,
+            source=self.bounding_box_format,
+            target=self.label_encoder.bounding_box_format,
+            images=x,
         )
         y_training_target = self.label_encoder.encode_batch(x, y)
-
+        y_training_target = bounding_box.convert_format(
+            y_training_target,
+            source=self.label_encoder.bounding_box_format,
+            target=self.bounding_box_format,
+            images=x,
+        )
         with tf.GradientTape() as tape:
             predictions = self(x, training=training)
             loss = self.compiled_loss(y_training_target, predictions["train_preds"])
             for extra_loss in self.losses:
                 loss += extra_loss
 
-        self._update_metrics(
-            y_for_metrics,
-        )
+        self._update_metrics(y_for_metrics, predictions["inference"])
 
         # Training specific code
         trainable_vars = self.trainable_variables
@@ -133,8 +145,6 @@ class RetinaNet(keras.Model):
         predictions = self.predict(x)
         return predictions["inference"]
 
-def _default_label_encoder():
-    return retina_net.utils.LabelEncoder()
 
 # --- Building the ResNet50 backbone ---
 def _default_backbone(include_rescaling):

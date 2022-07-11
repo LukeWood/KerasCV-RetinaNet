@@ -1,12 +1,90 @@
 import retina_net
 from loader import load_pascal_voc
 import tensorflow as tf
+import keras_cv
 
-train_ds = load_pascal_voc(bounding_box_format="rel_xyxy", split="train", batch_size=2)
+ids = list(range(20))
+metrics = [
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        name="Standard MaP",
+    ),
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        iou_thresholds=[0.5],
+        name="MaP IoU=0.5",
+    ),
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        iou_thresholds=[0.75],
+        name="MaP IoU=0.75",
+    ),
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(0, 32**2),
+        name="MaP Small Objects",
+    ),
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(32**2, 96**2),
+        name="MaP Medium Objects",
+    ),
+    keras_cv.metrics.COCOMeanAveragePrecision(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(96**2, 1e9**2),
+        name="MaP Large Objects",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        max_detections=1,
+        name="Recall 1 Detection",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        max_detections=10,
+        name="Recall 10 Detections",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        max_detections=100,
+        name="Standard Recall",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(0, 32**2),
+        name="Recall Small Objects",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(32**2, 96**2),
+        name="Recall Medium Objects",
+    ),
+    keras_cv.metrics.COCORecall(
+        class_ids=ids,
+        bounding_box_format="xywh",
+        area_range=(96**2, 1e9**2),
+        name="Recall Large Objects",
+    ),
+]
+
+train_ds = load_pascal_voc(bounding_box_format="xywh", split="train", batch_size=2)
 model = retina_net.RetinaNet(
-    num_classes=20, bounding_box_format="rel_xyxy", include_rescaling=False
+    num_classes=20, bounding_box_format="xywh", include_rescaling=False
 )
-model.compile(optimizer="adam", loss=retina_net.FocalLoss(num_classes=20))
+model.compile(
+    optimizer="adam", loss=retina_net.FocalLoss(num_classes=20), metrics=metrics
+)
 
 
 def unpackage_dict(inputs):
