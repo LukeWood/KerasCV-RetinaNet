@@ -77,9 +77,6 @@ class DecodePredictions(tf.keras.layers.Layer):
 
     def _encode_to_ragged(self, nmsed_boxes):
         boxes = []
-        output_nmsed_boxes = bounding_box.convert_format(
-            boxes, source="xyxy", target=self.bounding_box_format
-        )
         # TODO(lukewood): change to dynamically computed batch size
         for i in range(self.batch_size):
             num_detections = nmsed_boxes.valid_detections[i]
@@ -94,6 +91,9 @@ class DecodePredictions(tf.keras.layers.Layer):
                     ),
                 ],
                 axis=-1,
+            )
+            boxes_recombined = bounding_box.convert_format(
+                boxes_recombined, source="xyxy", target=self.bounding_box_format
             )
             boxes.append(boxes_recombined)
         result = tf.ragged.stack(boxes)

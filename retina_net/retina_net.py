@@ -72,7 +72,9 @@ class RetinaNet(keras.Model):
         )
         pred_for_inference = self.decoder(x, pred_for_inference)
         pred_for_inference = bounding_box.convert_format(
-            pred_for_inference, source=self.decoder.bounding_box_format, target=self.bounding_box_format
+            pred_for_inference,
+            source=self.decoder.bounding_box_format,
+            target=self.bounding_box_format,
         )
         return {"train_preds": train_preds, "inference": pred_for_inference}
 
