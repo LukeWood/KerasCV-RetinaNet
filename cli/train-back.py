@@ -21,6 +21,7 @@ flags.DEFINE_boolean("wandb", False, "Whether to use wandb")
 FLAGS = flags.FLAGS
 AUTOTUNE = tf.data.AUTOTUNE
 
+
 def get_callbacks(config, checkpoint_filepath, val_path, train_path):
     callbacks = []
     if FLAGS.model_dir:

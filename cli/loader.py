@@ -23,44 +23,46 @@ IMG_SIZE = (256, 256)
 BATCH_SIZE = 9
 
 
-def unpackage(inputs):
+def unpackage(format):
     """mapping function to create batched image and bbox coordinates"""
-    inputs["image"] = tf.image.resize(inputs["image"], IMG_SIZE)
-    inputs["objects"]["bbox"] = bounding_box.convert_format(
-        inputs["objects"]["bbox"],
-        images=inputs["image"],
-        source="rel_yxyx",
-        target="rel_xyxy",
-    )
 
-    bounding_boxes = inputs["objects"]["bbox"]
-    labels = tf.cast(inputs["objects"]["label"], tf.float32)
-    labels = tf.expand_dims(labels, axis=-1)
-    bounding_boxes = tf.concat(
-        [bounding_boxes, labels], axis=-1
-    )
-    return {"images": inputs["image"], "bounding_boxes": bounding_boxes}
+    def apply(inputs):
+        inputs["image"] = tf.image.resize(inputs["image"], IMG_SIZE)
+        inputs["objects"]["bbox"] = bounding_box.convert_format(
+            inputs["objects"]["bbox"],
+            images=inputs["image"],
+            source="rel_yxyx",
+            target=format,
+        )
+
+        bounding_boxes = inputs["objects"]["bbox"]
+        labels = tf.cast(inputs["objects"]["label"], tf.float32)
+        labels = tf.expand_dims(labels, axis=-1)
+        bounding_boxes = tf.concat([bounding_boxes, labels], axis=-1)
+        return {"images": inputs["image"], "bounding_boxes": bounding_boxes}
+
+    return apply
 
 
-def load_pascal_voc(split):
+def load_pascal_voc(split, bounding_box_format, batch_size):
     dataset = tfds.load("voc/2007", split=split, shuffle_files=True)
-    dataset = dataset.map(unpackage, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.map(
+        unpackage(format=bounding_box_format), num_parallel_calls=tf.data.AUTOTUNE
+    )
+    dataset = dataset.apply(
+        tf.data.experimental.dense_to_ragged_batch(batch_size=batch_size)
+    )
     return dataset
 
 
 def main():
-    dataset = load_pascal_voc(split="train")
-    dataset = dataset.apply(
-        tf.data.experimental.dense_to_ragged_batch(batch_size=9)
+    dataset = load_pascal_voc(
+        split="train", bounding_box_format="rel_yxyx", batch_size=9
     )
+
     for example in dataset.take(1):
         images, boxes = example["images"], example["bounding_boxes"]
         boxes = boxes.to_tensor(default_value=-1)
-        boxes = bounding_box.convert_format(boxes,
-                 images=images,
-                 source="rel_yxyx",
-                 target="rel_xyxy",
-            )
         color = tf.constant(((255.0, 0, 0),))
         plotted_images = tf.image.draw_bounding_boxes(
             images, boxes[..., :4], color, name=None

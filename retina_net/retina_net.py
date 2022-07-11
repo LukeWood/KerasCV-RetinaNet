@@ -4,9 +4,9 @@ import tensorflow as tf
 from absl import flags
 from ml_collections.config_flags import config_flags
 from tensorflow import keras
-
+from keras_cv import bounding_box
 from retina_net import layers as layers_lib
-
+import retina_net.utils
 # --- Building RetinaNet using a subclassed model ---
 class RetinaNet(keras.Model):
     """A Keras model implementing the RetinaNet architecture."""
@@ -16,6 +16,7 @@ class RetinaNet(keras.Model):
         num_classes,
         bounding_box_format,
         include_rescaling=None,
+        label_encoder=None,
         backbone=None,
         prediction_decoder=None,
         name="RetinaNet",
@@ -26,14 +27,19 @@ class RetinaNet(keras.Model):
             raise ValueError(
                 "Either `backbone` OR `include_rescaling` must be set when "
                 "constructing a `keras_cv.models.RetinaNet()` model. "
+                "When `include_rescaling` is set, a ResNet50 backbone will be used. "
+                "Rescaling will be performed according to the include_rescaling parameter. "
+                "When `backbone` is set, rescaling will be the responsibility of the "
+                "backbone.  Please read more about input scaling at {LINK}. "
                 f"Received backbone={backbone}, include_rescaling={include_rescaling}."
             )
 
-        self.feature_pyramid = layers_lib.FeaturePyramid(backbone)
         self.bounding_box_format = bounding_box_format
         self.num_classes = num_classes
 
+        self.label_encoder = label_encoder or _default_label_encoder()
         self.backbone = backbone or _default_backbone(include_rescaling)
+        self.feature_pyramid = layers_lib.FeaturePyramid(self.backbone)
 
         prior_probability = tf.constant_initializer(-np.log((1 - 0.01) / 0.01))
 
@@ -69,12 +75,14 @@ class RetinaNet(keras.Model):
             pred_for_inference,
             source=self.bounding_box_format,
             target=self.decoder.bounding_box_format,
+            images=x,
         )
         pred_for_inference = self.decoder(x, pred_for_inference)
         pred_for_inference = bounding_box.convert_format(
             pred_for_inference,
             source=self.decoder.bounding_box_format,
             target=self.bounding_box_format,
+            images=x
         )
         return {"train_preds": train_preds, "inference": pred_for_inference}
 
@@ -97,13 +105,13 @@ class RetinaNet(keras.Model):
         y_for_metrics = y
 
         y = bounding_box.convert_format(
-            y, source=self.bounding_box_format, target="xywh"
+            y, source=self.bounding_box_format, target="xywh", images=x
         )
-        y_training_target = self.label_encoder.encode_batch(y)
+        y_training_target = self.label_encoder.encode_batch(x, y)
 
         with tf.GradientTape() as tape:
             predictions = self(x, training=training)
-            loss = self._loss(y_training_target, predictions["train_preds"])
+            loss = self.compiled_loss(y_training_target, predictions["train_preds"])
             for extra_loss in self.losses:
                 loss += extra_loss
 
@@ -125,9 +133,11 @@ class RetinaNet(keras.Model):
         predictions = self.predict(x)
         return predictions["inference"]
 
+def _default_label_encoder():
+    return retina_net.utils.LabelEncoder()
 
 # --- Building the ResNet50 backbone ---
-def default_backbone(include_rescaling):
+def _default_backbone(include_rescaling):
     """Builds ResNet50 with pre-trained imagenet weights"""
     # TODO(lukewood): include_rescaling
     if include_rescaling:

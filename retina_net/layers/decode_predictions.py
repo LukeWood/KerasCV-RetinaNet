@@ -1,6 +1,6 @@
 import tensorflow as tf
 from keras_cv import bounding_box
-
+from keras_cv import layers
 from reef_net.utils import AnchorBox
 
 
@@ -25,19 +25,22 @@ class DecodePredictions(tf.keras.layers.Layer):
         num_classes,
         bounding_box_format,
         confidence_threshold=0.05,
-        nms_iou_threshold=0.5,
+        iou_threshold=0.5,
         max_detections_per_class=100,
         max_detections=100,
         box_variance=[0.1, 0.1, 0.2, 0.2],
         **kwargs
     ):
         super().__init__(**kwargs)
-        self.num_classes = num_classes
-        self.batch_size = batch_size
-        self.confidence_threshold = confidence_threshold
-        self.nms_iou_threshold = nms_iou_threshold
-        self.max_detections_per_class = max_detections_per_class
-        self.max_detections = max_detections
+        self.bounding_box_format = bounding_box_format
+        self.non_max_suppression = layers.NonMaxSuppression(
+            bounding_box_format="xyxy",
+            num_classes=num_classes,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            max_detections=max_detections,
+            max_detections_per_class=max_detections_per_class,
+        )
         self._anchor_box = AnchorBox()
         self._box_variance = tf.convert_to_tensor(
             [0.1, 0.1, 0.2, 0.2], dtype=tf.float32
@@ -53,7 +56,7 @@ class DecodePredictions(tf.keras.layers.Layer):
             axis=-1,
         )
         boxes_transformed = bounding_box.convert_format(
-            boxes, source=bounding_box_format, target="xyxy"
+            boxes, source=self.bounding_box_format, target="xyxy"
         )
         return boxes_transformed
 
@@ -63,38 +66,8 @@ class DecodePredictions(tf.keras.layers.Layer):
         box_predictions = predictions[:, :, :4]
         cls_predictions = tf.nn.sigmoid(predictions[:, :, 4:])
         boxes = self._decode_box_predictions(anchor_boxes[None, ...], box_predictions)
-
-        nmsed_boxes = tf.image.combined_non_max_suppression(
-            tf.expand_dims(boxes, axis=2),
-            cls_predictions,
-            self.max_detections_per_class,
-            self.max_detections,
-            self.nms_iou_threshold,
-            self.confidence_threshold,
-            clip_boxes=False,
+        result = self.non_max_suppression(boxes)
+        result = bounding_box.convert_format(
+            result, source="xyxy", target=self.bounding_box_format
         )
-        return self._encode_to_ragged(nmsed_boxes)
-
-    def _encode_to_ragged(self, nmsed_boxes):
-        boxes = []
-        # TODO(lukewood): change to dynamically computed batch size
-        for i in range(self.batch_size):
-            num_detections = nmsed_boxes.valid_detections[i]
-            boxes_recombined = tf.concat(
-                [
-                    output_nmsed_boxes[i][:num_detections],
-                    tf.expand_dims(
-                        nmsed_boxes.nmsed_classes[i][:num_detections], axis=-1
-                    ),
-                    tf.expand_dims(
-                        nmsed_boxes.nmsed_scores[i][:num_detections], axis=-1
-                    ),
-                ],
-                axis=-1,
-            )
-            boxes_recombined = bounding_box.convert_format(
-                boxes_recombined, source="xyxy", target=self.bounding_box_format
-            )
-            boxes.append(boxes_recombined)
-        result = tf.ragged.stack(boxes)
         return result
