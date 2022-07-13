@@ -95,7 +95,6 @@ model.compile(
     metrics=metrics
 )
 
-
 def unpackage_dict(inputs):
     return inputs["images"]/255.0, inputs["bounding_boxes"]
 
