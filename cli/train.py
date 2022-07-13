@@ -2,6 +2,11 @@ import retina_net
 from loader import load_pascal_voc
 import tensorflow as tf
 import keras_cv
+import wandb
+from wandb.keras import WandbCallback
+from tensorflow.keras import callbacks as callbacks_lib
+
+wandb.init(project="pascalvoc-retinanet", entity="keras-team-testing")
 
 ids = list(range(20))
 metrics = [
@@ -79,18 +84,27 @@ metrics = [
 ]
 
 train_ds = load_pascal_voc(bounding_box_format="xywh", split="train", batch_size=2)
+
+# No rescaling
 model = retina_net.RetinaNet(
     num_classes=20, bounding_box_format="xywh", include_rescaling=False
 )
 model.compile(
-    optimizer="adam", loss=retina_net.FocalLoss(num_classes=20), metrics=metrics
+    optimizer="adam",
+    loss=retina_net.FocalLoss(num_classes=20),
+    metrics=metrics
 )
 
 
 def unpackage_dict(inputs):
-    return inputs["images"], inputs["bounding_boxes"]
+    return inputs["images"]/255.0, inputs["bounding_boxes"]
 
 
 train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 
-model.fit(train_ds)
+callbacks = [
+    callbacks_lib.TensorBoard(log_dir="logs"),
+    WandbCallback(),
+]
+
+model.fit(train_ds, epochs=100, callbacks=callbacks)
