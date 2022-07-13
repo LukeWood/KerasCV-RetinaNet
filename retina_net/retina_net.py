@@ -106,8 +106,7 @@ class RetinaNet(keras.Model):
         metrics_result["loss"] = loss
         return metrics_result
 
-    def train_step(self, data):
-        x, y = data
+    def _encode_data(self, x, y):
         y_for_metrics = y
 
         y = bounding_box.convert_format(
@@ -123,11 +122,19 @@ class RetinaNet(keras.Model):
             target=self.bounding_box_format,
             images=x,
         )
+        return y_for_metrics, y_training_target
+
+    def train_step(self, data):
+        x, y = data
+        y_for_metrics, y_training_target = self._encode_data(x, y)
+
         with tf.GradientTape() as tape:
             predictions = self(x, training=True)
-            loss = self.compiled_loss(y_training_target, predictions["train_preds"])
-            for extra_loss in self.losses:
-                loss += extra_loss
+            loss = self.compiled_loss(
+                y_training_target,
+                predictions["train_preds"],
+                regularization_losses=self.losses,
+            )
 
         self._update_metrics(y_for_metrics, predictions["inference"])
 
@@ -143,26 +150,14 @@ class RetinaNet(keras.Model):
 
     def test_step(self, data):
         x, y = data
-        y_for_metrics = y
+        y_for_metrics, y_training_target = self._encode_data(x, y)
 
-        y = bounding_box.convert_format(
-            y,
-            source=self.bounding_box_format,
-            target=self.label_encoder.bounding_box_format,
-            images=x,
-        )
-        y_training_target = self.label_encoder.encode_batch(x, y)
-        y_training_target = bounding_box.convert_format(
+        predictions = self(x)
+        loss = self.compiled_loss(
             y_training_target,
-            source=self.label_encoder.bounding_box_format,
-            target=self.bounding_box_format,
-            images=x,
+            predictions["train_preds"],
+            regularization_losses=self.losses,
         )
-
-        predictions = self(x, training=training)
-        loss = self.compiled_loss(y_training_target, predictions["train_preds"])
-        for extra_loss in self.losses:
-            loss += extra_loss
 
         self._update_metrics(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)

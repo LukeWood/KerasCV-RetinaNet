@@ -87,7 +87,17 @@ metrics = [
 # train_ds is batched as a (images, bounding_boxes) tuple
 # bounding_boxes are ragged
 train_ds = load_pascal_voc(bounding_box_format="xywh", split="train", batch_size=2)
-val_ds = load_pascal_voc(bounding_box_format="xywh", split="train", batch_size=2)
+val_ds = load_pascal_voc(bounding_box_format="xywh", split="validation", batch_size=2)
+
+
+def unpackage_dict(inputs):
+    return inputs["images"] / 255.0, inputs["bounding_boxes"]
+
+
+# TODO(lukewood): preprocessing
+
+train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
+val_ds = val_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 
 learning_rates = [2.5e-06, 0.000625, 0.00125, 0.0025, 0.00025, 2.5e-05]
 learning_rate_boundaries = [125, 250, 500, 240000, 360000]
@@ -107,13 +117,6 @@ model.compile(
     optimizer=optimizer, loss=retina_net.FocalLoss(num_classes=20), metrics=metrics
 )
 
-
-def unpackage_dict(inputs):
-    return inputs["images"] / 255.0, inputs["bounding_boxes"]
-
-
-train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
-
 callbacks = [
     callbacks_lib.TensorBoard(log_dir="logs"),
     WandbCallback(),
@@ -121,4 +124,9 @@ callbacks = [
 ]
 
 # model.fit(train_ds, validation_data=val_ds, epochs=500, callbacks=callbacks)
-model.fit(train_ds, steps_per_epoch=1, validation_steps=1, validation_data=val_ds, epochs=100, callbacks=callbacks)
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=500,
+    callbacks=callbacks,
+)
