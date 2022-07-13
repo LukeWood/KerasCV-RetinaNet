@@ -6,6 +6,7 @@ import wandb
 from wandb.keras import WandbCallback
 from tensorflow.keras import callbacks as callbacks_lib
 
+
 wandb.init(project="pascalvoc-retinanet", entity="keras-team-testing")
 
 ids = list(range(20))
@@ -116,6 +117,7 @@ train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 callbacks = [
     callbacks_lib.TensorBoard(log_dir="logs"),
     WandbCallback(),
+    callbacks_lib.EarlyStopping(patience=5),
 ]
 
 model.fit(train_ds, validation_data=val_ds, epochs=100, callbacks=callbacks)
