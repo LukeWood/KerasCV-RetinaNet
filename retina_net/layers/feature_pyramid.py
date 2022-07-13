@@ -12,7 +12,7 @@ class FeaturePyramid(keras.layers.Layer):
     """
 
     def __init__(self, backbone=None, **kwargs):
-        super(FeaturePyramid, self).__init__(name="FeaturePyramid", **kwargs)
+        super().__init__(name="FeaturePyramid", **kwargs)
         self.backbone = backbone if backbone else get_backbone()
         self.conv_c3_1x1 = keras.layers.Conv2D(256, 1, 1, "same")
         self.conv_c4_1x1 = keras.layers.Conv2D(256, 1, 1, "same")
