@@ -106,7 +106,7 @@ class RetinaNet(keras.Model):
         metrics_result["loss"] = loss
         return metrics_result
 
-    def train_step(self, data, training=True):
+    def train_step(self, data):
         x, y = data
         y_for_metrics = y
 
@@ -124,7 +124,7 @@ class RetinaNet(keras.Model):
             images=x,
         )
         with tf.GradientTape() as tape:
-            predictions = self(x, training=training)
+            predictions = self(x, training=True)
             loss = self.compiled_loss(y_training_target, predictions["train_preds"])
             for extra_loss in self.losses:
                 loss += extra_loss
@@ -139,6 +139,32 @@ class RetinaNet(keras.Model):
 
         # Return metric result
 
+        return self._metrics_result(loss)
+
+    def test_step(self, data):
+        x, y = data
+        y_for_metrics = y
+
+        y = bounding_box.convert_format(
+            y,
+            source=self.bounding_box_format,
+            target=self.label_encoder.bounding_box_format,
+            images=x,
+        )
+        y_training_target = self.label_encoder.encode_batch(x, y)
+        y_training_target = bounding_box.convert_format(
+            y_training_target,
+            source=self.label_encoder.bounding_box_format,
+            target=self.bounding_box_format,
+            images=x,
+        )
+
+        predictions = self(x, training=training)
+        loss = self.compiled_loss(y_training_target, predictions["train_preds"])
+        for extra_loss in self.losses:
+            loss += extra_loss
+
+        self._update_metrics(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)
 
     def inference(self, x):

@@ -100,7 +100,8 @@ class LabelEncoder:
             boxes, source=self.bounding_box_format, target="xywh"
         )
         images_shape = tf.shape(batch_images)
-        boxes = boxes.to_tensor(default_value=-1)
+        if isinstance(boxes, tf.RaggedTensor):
+            boxes = boxes.to_tensor(default_value=-1)
         return tf.map_fn(elems=boxes, fn=lambda x: self._encode_sample(images_shape, x))
 
 

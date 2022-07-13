@@ -120,4 +120,5 @@ callbacks = [
     callbacks_lib.EarlyStopping(patience=5),
 ]
 
-model.fit(train_ds, validation_data=val_ds, epochs=500, callbacks=callbacks)
+# model.fit(train_ds, validation_data=val_ds, epochs=500, callbacks=callbacks)
+model.fit(train_ds, steps_per_epoch=1, validation_steps=1, validation_data=val_ds, epochs=100, callbacks=callbacks)
