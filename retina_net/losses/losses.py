@@ -5,7 +5,6 @@ from absl import flags
 from tensorflow import keras
 
 from retina_net.utils import AnchorBox
-from retina_net.utils import convert_to_corners
 
 
 class FocalLoss(tf.losses.Loss):
