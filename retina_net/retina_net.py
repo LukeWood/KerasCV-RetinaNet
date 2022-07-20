@@ -82,17 +82,20 @@ class RetinaNet(keras.Model):
         metrics = metrics or []
         super().compile(metrics=metrics, **kwargs)
 
-        if not all([hasattr(m, "bounding_box_format") for m in metrics]):
+        all_have_format = any([m.bounding_box_format != self._metrics_bounding_box_format for m in metrics])
+        if not all_have_format:
             raise ValueError(
                 "All metrics passed to RetinaNet.compile() must have "
                 "a `bounding_box_format` attribute."
             )
+
         if len(metrics) != 0:
             self._metrics_bounding_box_format = metrics[0].bounding_box_format
         else:
             self._metrics_bounding_box_format = self.bounding_box_format
 
-        if any([m.bounding_box_format != self._metrics_bounding_box_format]):
+        any_wrong_format = any([m.bounding_box_format != self._metrics_bounding_box_format for m in metrics])
+        if any_wrong_format:
             raise ValueError(
                 "All metrics passed to RetinaNet.compile() must have "
                 "the same `bounding_box_format` attribute.  For example, if one metric "
