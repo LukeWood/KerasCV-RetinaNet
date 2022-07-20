@@ -10,15 +10,36 @@ import retina_net.utils
 
 # --- Building RetinaNet using a subclassed model ---
 class RetinaNet(keras.Model):
-    """A Keras model implementing the RetinaNet architecture."""
+    """A Keras model implementing the RetinaNet architecture.
+
+    TODO: describe how it works, output formats, metrics, etc.
+
+    Usage:
+        TODO
+
+    Args:
+        num_classes:
+        bounding_box_format:
+        backbone: Either 'resnet50' or a custom backbone model.  Please see {link} to see
+            how to construct your own backbone.
+        include_rescaling: Required if provided backbone is a pre-configured model.
+            Whether or not to rescale inputs in the backbone.
+        backbone_weights:
+        label_encoder:
+        feature_pyramid:
+        prediction_decoder:
+        name: (Optional), defaults to RetinaNet.
+    """
 
     def __init__(
         self,
         num_classes,
         bounding_box_format,
+        backbone,
         include_rescaling=None,
+        backbone_weights=None,
         label_encoder=None,
-        backbone=None,
+        feature_pyramid=None,
         prediction_decoder=None,
         name="RetinaNet",
         **kwargs,
@@ -41,8 +62,8 @@ class RetinaNet(keras.Model):
         self.label_encoder = label_encoder or retina_net.utils.LabelEncoder(
             bounding_box_format=bounding_box_format
         )
-        self.backbone = backbone or _default_backbone(include_rescaling)
-        self.feature_pyramid = layers_lib.FeaturePyramid(self.backbone)
+        self.backbone = _parse_backbone(backbone, include_rescaling, backbone_weights)
+        self.feature_pyramid = feature_pyramid or layers_lib.FeaturePyramid()
 
         prior_probability = tf.constant_initializer(-np.log((1 - 0.01) / 0.01))
 
@@ -58,7 +79,9 @@ class RetinaNet(keras.Model):
         )
 
     def call(self, x, training=False):
-        features = self.feature_pyramid(x, training=training)
+        backbone_outputs = self.backbone(x, training=training)
+        features = self.feature_pyramid(backbone_outputs, training=training)
+
         N = tf.shape(x)[0]
         cls_outputs = []
         box_outputs = []
@@ -87,24 +110,6 @@ class RetinaNet(keras.Model):
             images=x,
         )
         return {"train_preds": train_preds, "inference": pred_for_inference}
-
-    def _update_metrics(
-        self,
-        y_for_metrics,
-        predictions,
-    ):
-        # COCO metrics are all stored in compiled_metrics
-        # This tf.cond is needed to work around a TensorFlow edge case in Ragged Tensors
-        tf.cond(
-            tf.shape(predictions)[2] != 0,
-            lambda: self.compiled_metrics.update_state(y_for_metrics, predictions),
-            lambda: None,
-        )
-
-    def _metrics_result(self, loss):
-        metrics_result = {m.name: m.result() for m in self.metrics}
-        metrics_result["loss"] = loss
-        return metrics_result
 
     def _encode_data(self, x, y):
         y_for_metrics = y
@@ -136,16 +141,14 @@ class RetinaNet(keras.Model):
                 regularization_losses=self.losses,
             )
 
-        self._update_metrics(y_for_metrics, predictions["inference"])
-
         # Training specific code
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
-        # clip grads to prevent explosion
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
-        # Return metric result
-
+        # To minimize GPU transfers, we update metrics AFTER we take grades and apply
+        # them.
+        self.compiled_metrics.update_state(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)
 
     def test_step(self, data):
@@ -159,28 +162,53 @@ class RetinaNet(keras.Model):
             regularization_losses=self.losses,
         )
 
-        self._update_metrics(y_for_metrics, predictions["inference"])
+        self.compiled_metrics.update_state(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)
+
+    def _metrics_result(self, loss):
+        metrics_result = {m.name: m.result() for m in self.metrics}
+        metrics_result["loss"] = loss
+        return metrics_result
 
     def inference(self, x):
         predictions = self.predict(x)
         return predictions["inference"]
 
 
+def _parse_backbone(backbone, include_rescaling, backbone_weights):
+    if isinstance(backbone, str):
+        if backbone == "resnet50":
+            return _resnet50_backbone(include_rescaling, backbone_weights)
+        else:
+            raise ValueError(
+                "backbone expected to be one of ['resnet50', keras.Model]. "
+                f"Received backbone={backbone}."
+            )
+    if include_rescaling or backbone_weights:
+        raise ValueError(
+            "When a custom backbone is used, include_rescaling and "
+            f"backbone_weights are not supported.  Received backbone={backbone}, "
+            f"include_rescaling={include_rescaling}, and "
+            f"backbone_weights={backbone_weights}."
+        )
+    return backbone
+
+
 # --- Building the ResNet50 backbone ---
-def _default_backbone(include_rescaling):
-    """Builds ResNet50 with pre-trained imagenet weights"""
-    # TODO(lukewood): include_rescaling
+def _resnet50_backbone(include_rescaling, backbone_weights):
+    inputs = keras.layers.Input(shape=(None, None, 3))
+    x = inputs
+
     if include_rescaling:
-        raise ValueError("include_rescaling is a TODO.  KerasCV API will cover this.")
+        x = keras.applications.resnet.preprocess_input(x)
+
     backbone = keras.applications.ResNet50(
-        include_top=False,
-        input_shape=[None, None, 3],
+        include_top=False, input_tensor=x, weights=backbone_weights
     )
+    x = backbone(x)
+
     c3_output, c4_output, c5_output = [
         backbone.get_layer(layer_name).output
         for layer_name in ["conv3_block4_out", "conv4_block6_out", "conv5_block3_out"]
     ]
-    return keras.Model(
-        inputs=[backbone.inputs], outputs=[c3_output, c4_output, c5_output]
-    )
+    return keras.Model(inputs=inputs, outputs=[c3_output, c4_output, c5_output])

@@ -45,14 +45,16 @@ def unpackage(format):
 
 
 def load_pascal_voc(split, bounding_box_format, batch_size):
-    dataset = tfds.load("voc/2007", split=split, shuffle_files=True)
+    dataset, dataset_info = tfds.load(
+        "voc/2007", split=split, shuffle_files=True, with_info=True
+    )
     dataset = dataset.map(
         unpackage(format=bounding_box_format), num_parallel_calls=tf.data.AUTOTUNE
     )
     dataset = dataset.apply(
         tf.data.experimental.dense_to_ragged_batch(batch_size=batch_size)
     )
-    return dataset
+    return dataset, dataset_info
 
 
 def main():

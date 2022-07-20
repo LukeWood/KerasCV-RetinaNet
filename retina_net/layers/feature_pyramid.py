@@ -3,17 +3,10 @@ import tensorflow as tf
 
 
 class FeaturePyramid(keras.layers.Layer):
-    """Builds the Feature Pyramid with the feature maps from the backbone.
+    """Builds the Feature Pyramid with the feature maps from the backbone."""
 
-    Attributes:
-      num_classes: Number of classes in the dataset.
-      backbone: The backbone to build the feature pyramid from.
-        Currently supports ResNet50 only.
-    """
-
-    def __init__(self, backbone=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(name="FeaturePyramid", **kwargs)
-        self.backbone = backbone if backbone else get_backbone()
         self.conv_c3_1x1 = keras.layers.Conv2D(256, 1, 1, "same")
         self.conv_c4_1x1 = keras.layers.Conv2D(256, 1, 1, "same")
         self.conv_c5_1x1 = keras.layers.Conv2D(256, 1, 1, "same")
@@ -24,8 +17,8 @@ class FeaturePyramid(keras.layers.Layer):
         self.conv_c7_3x3 = keras.layers.Conv2D(256, 3, 2, "same")
         self.upsample_2x = keras.layers.UpSampling2D(2)
 
-    def call(self, images, training=False):
-        c3_output, c4_output, c5_output = self.backbone(images, training=training)
+    def call(self, inputs, training=False):
+        c3_output, c4_output, c5_output = inputs
         p3_output = self.conv_c3_1x1(c3_output)
         p4_output = self.conv_c4_1x1(c4_output)
         p5_output = self.conv_c5_1x1(c5_output)

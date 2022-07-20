@@ -50,7 +50,7 @@ class LabelEncoder:
           ignore_mask: A mask for anchor boxes that need to by ignored during
             training
         """
-        iou_matrix = compute_iou(anchor_boxes, gt_boxes, bounding_box_format='xywh')
+        iou_matrix = compute_iou(anchor_boxes, gt_boxes, bounding_box_format="xywh")
         max_iou = tf.reduce_max(iou_matrix, axis=1)
         matched_gt_idx = tf.argmax(iou_matrix, axis=1)
         positive_mask = tf.greater_equal(max_iou, match_iou)
@@ -117,8 +117,12 @@ def compute_iou(boxes1, boxes2, bounding_box_format):
         jth column holds the IOU between ith box and jth box from
         boxes1 and boxes2 respectively.
     """
-    boxes1_corners = bounding_box.convert_format(boxes1, source=bounding_box_format, target="xyxy")
-    boxes2_corners = bounding_box.convert_format(boxes2, source=bounding_box_format, target="xyxy")
+    boxes1_corners = bounding_box.convert_format(
+        boxes1, source=bounding_box_format, target="xyxy"
+    )
+    boxes2_corners = bounding_box.convert_format(
+        boxes2, source=bounding_box_format, target="xyxy"
+    )
     lu = tf.maximum(boxes1_corners[:, None, :2], boxes2_corners[:, :2])
     rd = tf.minimum(boxes1_corners[:, None, 2:], boxes2_corners[:, 2:])
     intersection = tf.maximum(0.0, rd - lu)

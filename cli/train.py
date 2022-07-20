@@ -5,96 +5,23 @@ import keras_cv
 import wandb
 from wandb.keras import WandbCallback
 from tensorflow.keras import callbacks as callbacks_lib
-
+import metrics as metrics_lib
 
 wandb.init(project="pascalvoc-retinanet", entity="keras-team-testing")
 
-ids = list(range(20))
-metrics = [
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        name="Standard MaP",
-    ),
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        iou_thresholds=[0.5],
-        name="MaP IoU=0.5",
-    ),
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        iou_thresholds=[0.75],
-        name="MaP IoU=0.75",
-    ),
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(0, 32**2),
-        name="MaP Small Objects",
-    ),
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(32**2, 96**2),
-        name="MaP Medium Objects",
-    ),
-    keras_cv.metrics.COCOMeanAveragePrecision(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(96**2, 1e9**2),
-        name="MaP Large Objects",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        max_detections=1,
-        name="Recall 1 Detection",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        max_detections=10,
-        name="Recall 10 Detections",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        max_detections=100,
-        name="Standard Recall",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(0, 32**2),
-        name="Recall Small Objects",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(32**2, 96**2),
-        name="Recall Medium Objects",
-    ),
-    keras_cv.metrics.COCORecall(
-        class_ids=ids,
-        bounding_box_format="xywh",
-        area_range=(96**2, 1e9**2),
-        name="Recall Large Objects",
-    ),
-]
-
 # train_ds is batched as a (images, bounding_boxes) tuple
 # bounding_boxes are ragged
-train_ds = load_pascal_voc(bounding_box_format="xywh", split="train", batch_size=2)
-val_ds = load_pascal_voc(bounding_box_format="xywh", split="validation", batch_size=2)
+train_ds, train_dataset_info = load_pascal_voc(
+    bounding_box_format="xywh", split="train", batch_size=2
+)
+val_ds, val_dataset_info = load_pascal_voc(
+    bounding_box_format="xywh", split="validation", batch_size=2
+)
 
 
 def unpackage_dict(inputs):
     return inputs["images"] / 255.0, inputs["bounding_boxes"]
 
-
-# TODO(lukewood): preprocessing
 
 train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 val_ds = val_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
@@ -111,16 +38,27 @@ optimizer = tf.optimizers.SGD(
 
 # No rescaling
 model = retina_net.RetinaNet(
-    num_classes=20, bounding_box_format="xywh", include_rescaling=False
+    num_classes=20,
+    bounding_box_format="xywh",
+    backbone="resnet50",
+    backbone_weights="imagenet",
+    include_rescaling=True,
 )
 model.compile(
-    optimizer=optimizer, loss=retina_net.FocalLoss(num_classes=20), metrics=metrics
+    optimizer=optimizer,
+    loss=retina_net.FocalLoss(num_classes=20),
+    metrics=metrics_lib.get_metrics(bounding_box_format="xywh", num_classes=20),
 )
 
 callbacks = [
     callbacks_lib.TensorBoard(log_dir="logs"),
     WandbCallback(),
     callbacks_lib.EarlyStopping(patience=5),
+    # retina_net.VisualizeBoxes(
+    #     validation_data=val_ds,
+    #     dataset_info=val_dataset_info,
+    #     bounding_box_format="xywh",
+    # ),
 ]
 
 # model.fit(train_ds, validation_data=val_ds, epochs=500, callbacks=callbacks)
