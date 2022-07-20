@@ -78,6 +78,27 @@ class RetinaNet(keras.Model):
             num_classes=num_classes, bounding_box_format=bounding_box_format
         )
 
+    def compile(self, metrics=None, **kwargs):
+        metrics = metrics or []
+        super().compile(metrics=metrics, **kwargs)
+
+        if not all([hasattr(m, "bounding_box_format") for m in metrics]):
+            raise ValueError(
+                "All metrics passed to RetinaNet.compile() must have "
+                "a `bounding_box_format` attribute."
+            )
+        if len(metrics) != 0:
+            self._metrics_bounding_box_format = metrics[0].bounding_box_format
+        else:
+            self._metrics_bounding_box_format = self.bounding_box_format
+
+        if any([m.bounding_box_format != self._metrics_bounding_box_format]):
+            raise ValueError(
+                "All metrics passed to RetinaNet.compile() must have "
+                "the same `bounding_box_format` attribute.  For example, if one metric "
+                "uses 'xyxy', all other metrics must use 'xyxy'"
+            )
+
     def call(self, x, training=False):
         backbone_outputs = self.backbone(x, training=training)
         features = self.feature_pyramid(backbone_outputs, training=training)
@@ -148,7 +169,9 @@ class RetinaNet(keras.Model):
 
         # To minimize GPU transfers, we update metrics AFTER we take grades and apply
         # them.
-        self.compiled_metrics.update_state(y_for_metrics, predictions["inference"])
+
+        # TODO(lukewood): assert that all metric formats are the same
+        self._update_metrics(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)
 
     def test_step(self, data):
@@ -162,8 +185,21 @@ class RetinaNet(keras.Model):
             regularization_losses=self.losses,
         )
 
-        self.compiled_metrics.update_state(y_for_metrics, predictions["inference"])
+        self._update_metrics(y_for_metrics, predictions["inference"])
         return self._metrics_result(loss)
+
+    def _update_metrics(self, y_true, y_pred):
+        y_true = bounding_box.convert_format(
+            y_true,
+            source=self.bounding_box_format,
+            target=self._metrics_bounding_box_format,
+        )
+        y_pred = bounding_box.convert_format(
+            y_pred,
+            source=self.bounding_box_format,
+            target=self._metrics_bounding_box_format,
+        )
+        self.compiled_metrics.update_state(y_true, y_pred)
 
     def _metrics_result(self, loss):
         metrics_result = {m.name: m.result() for m in self.metrics}
