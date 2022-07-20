@@ -6,6 +6,7 @@ def get_metrics(num_classes, bounding_box_format):
     metrics = [
         keras_cv.metrics.COCOMeanAveragePrecision(
             class_ids=ids,
+            bounding_box_format=bounding_box_format,
             name="Standard MaP",
         ),
         keras_cv.metrics.COCOMeanAveragePrecision(
