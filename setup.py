@@ -15,7 +15,6 @@ setup(
     author="Luke Wood",
     author_email="lukewoodcs@gmail.com",
     install_requires=[
-        "keras-cv==0.2.6",
         "black",
         "isort",
         "flake8",
