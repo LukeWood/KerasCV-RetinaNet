@@ -6,8 +6,8 @@ import wandb
 from wandb.keras import WandbCallback
 from tensorflow.keras import callbacks as callbacks_lib
 import metrics as metrics_lib
-
-wandb.init(project="pascalvoc-retinanet", entity="keras-team-testing")
+from retina_net.callbacks import VisualizeBoxes
+# wandb.init(project="pascalvoc-retinanet", entity="keras-team-testing")
 
 # train_ds is batched as a (images, bounding_boxes) tuple
 # bounding_boxes are ragged
@@ -26,15 +26,7 @@ def unpackage_dict(inputs):
 train_ds = train_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 val_ds = val_ds.map(unpackage_dict, num_parallel_calls=tf.data.AUTOTUNE)
 
-learning_rates = [2.5e-06, 0.000625, 0.00125, 0.0025, 0.00025, 2.5e-05]
-learning_rate_boundaries = [125, 250, 500, 240000, 360000]
-learning_rate_fn = tf.optimizers.schedules.PiecewiseConstantDecay(
-    boundaries=learning_rate_boundaries, values=learning_rates
-)
-
-optimizer = tf.optimizers.SGD(
-    learning_rate=learning_rate_fn, momentum=0.9, global_clipnorm=10.0
-)
+optimizer = tf.keras.optimizers.Adam(global_clipnorm=10.0)
 
 # No rescaling
 model = retina_net.RetinaNet(
@@ -52,7 +44,7 @@ model.compile(
 
 callbacks = [
     callbacks_lib.TensorBoard(log_dir="logs"),
-    WandbCallback(),
+    #WandbCallback(),
     callbacks_lib.EarlyStopping(patience=5),
     # retina_net.VisualizeBoxes(
     #     validation_data=val_ds,
