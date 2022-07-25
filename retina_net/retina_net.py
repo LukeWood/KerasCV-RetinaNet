@@ -77,6 +77,7 @@ class RetinaNet(keras.Model):
         self.prediction_decoder = prediction_decoder or layers_lib.DecodePredictions(
             num_classes=num_classes, bounding_box_format=bounding_box_format
         )
+        self._metrics_bounding_box_format = None
 
     def compile(self, metrics=None, **kwargs):
         metrics = metrics or []
